@@ -48,12 +48,12 @@ The following frameworks were used to build this project:
 
 The repository is split mainly into doc and src files. The src files contain both the arduino .ino code and espressif .c and .h files for the working waveform. The doc files contain documents in relation to the assignment.
 
-* [docs/](../docs)  # related documents
+* [docs/](/docs)  # related documents
   * [B31DG - Assignment 2 - H00368728 - Fraser Holman.docx](/docs/B31DG%20-%20Assignment%202%20-%20H00368728%20-%20Fraser%20Holman.docx)  # assignment report
   * [Cyclic Executive Design](/docs/CyclicExecutiveDesign.xlsx)
   * [Standard Declaration of Student Authorship Word Document](/docs/Standard%20Declaration%20of%20Student%20Authorship%20-HWU.docx)
   * [Standard Declaration of Student Authorship PDF](/docs/Standard%20Declaration%20of%20Student%20Authorship%20-HWU.pdf)
-* [src/](../src)    # source files
+* [src/](/src)    # source files
   * [Cyclic Executive Firmware/](/src/Cyclic)
     * [main.ino/](/src/Cyclic/Cyclic.ino)  
   * [RTOS Firmware/](/src/RTOS)
