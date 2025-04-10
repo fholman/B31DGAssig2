@@ -2,30 +2,20 @@
 
 # B31DG Assignment 2
 
-- [Project Overview](#project-overview)  
-  - [Built With](#built-with)  
+- [Project Overview](#project-overview) 
 - [Repository Structure](#repository-structure)    
 - [Contact](#contact)  
 
 ## Project Overview
-This project is an **ESP32-based signal control system** designed to handle input interrupts and generate pulse waveforms. It utilizes GPIO for input buttons and output signals, with an efficient **interrupt-driven** approach to manage button presses and control LED signaling.
+The project follows the requirements of B31DG Assignment 2. The project explores the comparison between a Cyclic Executive Design and RTOS System to fulfil a Real Time System constraints. The coursework introduces 7 different requirements which can each represent its own task which needs to be implemented into a Real Time System. The 5 main tasks that rely on the Real Time System constraints can be seen in the following table which the coursework will be mainly based around.
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-## About The Project
-The project follows the requirements of B31DG Assignment 1. The system utilises GPIO pins on an ESP32-WROOM module, the system was first implemented in the Arduino ide in a .ino file and then was followed by implementing the system using the ESP-IDF extension with VSCode. The system generates two waveforms utilising two GPIO pins for LEDs and a further two GPIO pins for input buttons. The DATA signal is defined by the calculations below and the SYNC signal pulses at the beginning of each DATA signal.
-
-The alternate signal was a reversed waveform of the original signal, this can be changed by using the SELECT button defined by the program. The ENABLE button can also be used to toggle the DATA signal on and off.
-
-
-| **Parameter**           | **Numerical Mapping**      | **Calculation**                     |
-|------------------------|---------------------------|-------------------------------------|
-| **a** Initial DATA pulse on time    | 'H' maps to 8             | 8 × 100µs = **800µs**               |
-| **b** DATA pulse off time             | 'O' maps to 12            | 12 × 100µs = **1200µs**             |
-| **c** Number of Pulses                 | 'L' maps to 12            | 12 + 4 = **16**                     |
-| **d** Idle Time                 | 'M' maps to 13            | 13 × 500µs = **6500µs**             |
-| **Alternative Behaviour** | 'A' maps to 1        | (1 % 4) + 1 = **2**                 |
-| **T<sub>ON(n)</sub>** DATA pulse width | N/A                       | 800 + ((n - 1) × 50µs) for n ≥ 2   |
+| Task    | Method            | Pi (ms) | Ci (ms) |
+|---------|-------------------|--------:|--------:|
+| Task 1  | `digitalSig1()`   |       4 |   0.605 |
+| Task 2  | `digitalSig2()`   |       3 |   0.355 |
+| Task 3  | `getF1()`         |      10 |   1.501 |
+| Task 4  | `getF2()`         |      10 |   1.200 |
+| Task 5  | `monitorProgram()`|       5 |   0.502 |
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -55,9 +45,9 @@ The repository is split mainly into doc and src files. The src files contain bot
   * [Standard Declaration of Student Authorship PDF](/docs/Standard%20Declaration%20of%20Student%20Authorship%20-HWU.pdf)
 * [src/](/src)    # source files
   * [Cyclic Executive Firmware/](/src/Cyclic)
-    * [main.ino/](/src/Cyclic/Cyclic.ino)  
+    * [Cyclic Executive ino File](/src/Cyclic/Cyclic.ino)  
   * [RTOS Firmware/](/src/RTOS)
-    * [main.ino/](/src/RTOS/RTOS.ino)
+    * [RTOS ino File](/src/RTOS/RTOS.ino)
 * [README.md](README.md)  # read me
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
