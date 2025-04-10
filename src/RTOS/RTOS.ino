@@ -4,27 +4,24 @@
 
 #include <driver/gpio.h>
 
+#include "esp_heap_caps.h"
+
 /**
  *
  * @author Fraser Holman
- * @date 10/03/2025
+ * @date 02/04/2025
  *
- * @brief B31DG Assignment 2 - Part 1 Cyclic Execution Code
+ * @brief B31DG Assignment 2 - Part 2 RTOS Code
  *
  *
  * 
 */
 
 // pin assignments
-// #define LED1 4
-// #define LED2 16
-// #define LED3 15
-// #define LED4 2
 #define LED1 GPIO_NUM_4
 #define LED2 GPIO_NUM_16
 #define LED3 GPIO_NUM_0
 #define LED4 GPIO_NUM_2
-
 #define SIGNAL1 GPIO_NUM_18
 #define SIGNAL2 GPIO_NUM_17
 #define TOGGLE 22
@@ -35,30 +32,26 @@ float F2 = 0.0;
 
 const uint8_t debounceDelay = 50; // debounce time in milliseconds used for button presses
 volatile unsigned long lastDebounceTime = 0; // store last press time for enable button
-bool pressed = false;
-bool prevButtonState = false;
 volatile byte ledState = LOW; // used to toggle an LED on/off
-bool monitoring = false;
 
+// B31DGCyclicExecutiveMonitor monitor(2565);
+B31DGCyclicExecutiveMonitor monitor(1965);
+
+// declared mutex's and semaphore's
 SemaphoreHandle_t freqMutex1 = xSemaphoreCreateMutex();
 SemaphoreHandle_t freqMutex2 = xSemaphoreCreateMutex();
 SemaphoreHandle_t buttonMutex = xSemaphoreCreateBinary();
-SemaphoreHandle_t monitorMutex = xSemaphoreCreateMutex();
-
-// B31DGCyclicExecutiveMonitor monitor(50);
-B31DGCyclicExecutiveMonitor monitor(300);
-
-unsigned long startOfProgram;
 
 // function prototypes
-void digitalSig1(void *pvParameters);
-void digitalSig2(void *pvParameters);
-void getF1(void *pvParameters);
-void getF2(void *pvParameters);
-void monitorButton(void *pvParameters);
-void monitorProgram(void *pvParameters);
-void IRAM_ATTR toggleClick(void);
-void vTaskDelayMS(int ms);
+void digitalSig1(void *pvParameters); // requirement 1
+void digitalSig2(void *pvParameters); // requirement 2
+void getF1(void *pvParameters); // requirement 3
+void getF2(void *pvParameters); // requirement 4
+unsigned long measureFrequency(gpio_num_t signal); // requirement 3/4
+void monitorProgram(void *pvParameters); // requirement 5
+void monitorLed(void *pvParameters); // requirement 6
+void monitorButton(void *pvParameters); // requirement 7
+void IRAM_ATTR toggleClick(void); // requirement 7
 
 /**
  *
@@ -68,11 +61,13 @@ void vTaskDelayMS(int ms);
 void setup() {
   Serial.begin(9600);
 
+  // setting the LED pins as an output
   gpio_set_direction(LED1,GPIO_MODE_OUTPUT);
   gpio_set_direction(LED2,GPIO_MODE_OUTPUT);
   gpio_set_direction(LED3,GPIO_MODE_OUTPUT);
   gpio_set_direction(LED4,GPIO_MODE_OUTPUT);
 
+  // setting the signal pins as an input
   gpio_set_direction(SIGNAL1,GPIO_MODE_INPUT);
   gpio_set_direction(SIGNAL2,GPIO_MODE_INPUT);
 
@@ -82,45 +77,43 @@ void setup() {
   // attaching interrupt to the button pins
   attachInterrupt(digitalPinToInterrupt(TOGGLE), toggleClick, RISING); // interrupt on the rising edge for enable button
 
-  startOfProgram = micros() + 40;
-
   // RTOS setup
-  xTaskCreate(monitorButton, "Task6", 1024, NULL, 0, NULL);
-  xTaskCreate(monitorLed, "Task7", 1024, NULL, 0, NULL);
-  xTaskCreate(digitalSig1, "Task1", 2048, NULL, 2, NULL);
-  xTaskCreate(digitalSig2, "Task2", 2048, NULL, 2, NULL);
-  xTaskCreate(getF1, "Task3", 2048, NULL, 2, NULL);
-  xTaskCreate(getF2, "Task4", 2048, NULL, 2, NULL);
-  xTaskCreate(monitorProgram, "Task5", 2048, NULL, 2, NULL);
+
+  // monitoring tasks are given a very low priority to ensure it does not preempt an important task vital for this system
+  xTaskCreate(monitorButton, "Task6", 2048, NULL, 0, NULL);
+  xTaskCreate(monitorLed, "Task7", 2048, NULL, 0, NULL);
+
+  // the main tasks for this RTOS system are given a higher priority
+  xTaskCreate(digitalSig1, "Task1", 2048, NULL, 1, NULL);
+  xTaskCreate(digitalSig2, "Task2", 2048, NULL, 1, NULL);
+  xTaskCreate(getF1, "Task3", 2048, NULL, 1, NULL);
+  xTaskCreate(getF2, "Task4", 2048, NULL, 1, NULL);
+  xTaskCreate(monitorProgram, "Task5", 2048, NULL, 1, NULL);
 
   monitor.startMonitoring();
 }
 
 /**
  *
- * Empty Loop Function
+ * Empty Loop Function as required by RTOS
  *
  */
 void loop() {}
 
 /*
-1.	Output a digital signal. This should be HIGH for 250μs, then LOW for 50μs, then HIGH again for 300μs, then LOW again. 
-You should use spin wait loops (e.g. using calls to standard delay()) to implement the short time intervals you need. Do not use interrupts. 
+ * Method represents task 1 and these are its requirements:
+ *
+ * 1.	Output a digital signal. This should be HIGH for 250μs, then LOW for 50μs, then HIGH again for 300μs, then LOW again. 
+ * You should use spin wait loops (e.g. using calls to standard delay()) to implement the short time intervals you need. Do not use interrupts. 
 */
 void digitalSig1(void *pvParameters) {
   TickType_t xLastWakeTime = xTaskGetTickCount();
-  const TickType_t xFrequency = pdMS_TO_TICKS(4);
-
-  uint16_t counter = 0;
+  const TickType_t xFrequency = pdMS_TO_TICKS(4); // method is only run once every 4ms
 
   while (1) {
-    counter++;
-
     vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
-    // // xSemaphoreTake(monitorMutex, portMAX_DELAY);
     monitor.jobStarted(1);
-    // // xSemaphoreGive(monitorMutex);
 
     gpio_set_level(LED1, HIGH);
     delayMicroseconds(250);
@@ -130,33 +123,24 @@ void digitalSig1(void *pvParameters) {
     delayMicroseconds(300);
     gpio_set_level(LED1, LOW);
     
-    // // xSemaphoreTake(monitorMutex, portMAX_DELAY);
     monitor.jobEnded(1);
-    // // xSemaphoreGive(monitorMutex);
-
-    // new delay method in relation to when start monitoring is activated
-    // vTaskDelayMS((int)((startOfProgram + 4000 * counter - micros()) / 1000));
-
   }
 }
 
 /*
-2.	Output a second digital signal. This should be HIGH for 100μs, then LOW for 50μs, then HIGH again for 200μs, then LOW again. 
-You should use spin wait loops (e.g. using calls to standard delay()) to implement the short time intervals you need. Do not use interrupts.
+ * Method represents task 2 and these are its requirements:
+ *
+ * 2.	Output a second digital signal. This should be HIGH for 100μs, then LOW for 50μs, then HIGH again for 200μs, then LOW again. 
+ * You should use spin wait loops (e.g. using calls to standard delay()) to implement the short time intervals you need. Do not use interrupts.
 */
 void digitalSig2(void *pvParameters) {
   TickType_t xLastWakeTime = xTaskGetTickCount();
-  const TickType_t xFrequency = pdMS_TO_TICKS(3);
-
-  uint16_t counter = 0;
+  const TickType_t xFrequency = pdMS_TO_TICKS(3); // task is only run once every 3ms
 
   while (1) {
-    counter++;
     vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
-    // xSemaphoreTake(monitorMutex, portMAX_DELAY);
     monitor.jobStarted(2);
-    // xSemaphoreGive(monitorMutex);
 
     gpio_set_level(LED2, HIGH);
     delayMicroseconds(100);
@@ -166,157 +150,122 @@ void digitalSig2(void *pvParameters) {
     delayMicroseconds(200);
     gpio_set_level(LED2, LOW);
 
-    // xSemaphoreTake(monitorMutex, portMAX_DELAY);
     monitor.jobEnded(2);
-    // xSemaphoreGive(monitorMutex);
-
-    // vTaskDelayMS((int)((startOfProgram + 3000 * counter - micros()) / 1000));
   }
 }
 
 /*
-3.	Measure the frequency of a 3.3v square wave signal. 
-The frequency of the wave signal in input will be in the range 666Hz to 1000Hz and the signal will be a standard square wave (50% duty cycle). 
-Let’s call this frequency F1 and measure it in Hz. You should measure F1 by polling the signal. 
-For this exercise, do not use interrupts (which would be the more efficient method).
+ * Method represents task 3 and these are its requirements: 
+ *
+ * 3.	Measure the frequency of a 3.3v square wave signal. 
+ * The frequency of the wave signal in input will be in the range 666Hz to 1000Hz and the signal will be a standard square wave (50% duty cycle). 
+ * Let’s call this frequency F1 and measure it in Hz. You should measure F1 by polling the signal. 
+ * For this exercise, do not use interrupts (which would be the more efficient method).
 */
 void getF1(void *pvParameters) {
   TickType_t xLastWakeTime = xTaskGetTickCount();
-  const TickType_t xFrequency = pdMS_TO_TICKS(10);
+  const TickType_t xFrequency = pdMS_TO_TICKS(10); // task is only run once every 10ms
 
   unsigned long period = 0;
-
-  unsigned long start;
-  unsigned long startOfPulse;
-
-  int state;
-
-  uint16_t counter = 0;
-
-  while (1) {
-    counter++;
-
-    monitor.jobStarted(3);
-
-    xSemaphoreTake(freqMutex1, portMAX_DELAY);
-
-    state = gpio_get_level(SIGNAL1);
-
-    startOfPulse = micros();
-
-    while (gpio_get_level(SIGNAL1) == state && micros() - startOfPulse < 750);
-
-    start = micros();
-
-    while (gpio_get_level(SIGNAL1) != state && micros() - startOfPulse < 1500);
-
-    period = ( micros() - start ) * 2;
-
-    // if (period < 1700 && period > 900) {
-    //   F1 = 1000000 / period;
-    // }
-
-    if (period > 0) {
-      F1 = 1000000 / period;
-    }
-
-    xSemaphoreGive(freqMutex1);
-
-    monitor.jobEnded(3);
-
-    vTaskDelayMS((int)((startOfProgram + 10000 * counter - micros()) / 1000));
-  }
-}
-
-/*
-4.	Measure the frequency of a second 3.3v square wave signal. 
-The frequency of the wave signal in input will be in the range 833Hz to 1500Hz and the signal will be a standard square wave (50% duty cycle). 
-Let’s call this frequency F2 and measure it in Hz. You should measure F2 by polling the signal. 
-For this exercise, do not use interrupts (which would be the more efficient method).
-*/
-void getF2(void *pvParameters) {
-  TickType_t xLastWakeTime = xTaskGetTickCount();
-  const TickType_t xFrequency = pdMS_TO_TICKS(10);
-
-  unsigned long period = 0;
-
-  unsigned long start;
-  unsigned long startOfPulse;
-
-  int state;
-
-  uint16_t counter = 0;
-
-  while (1) {
-    counter++;
-
-    monitor.jobStarted(4);
-
-    xSemaphoreTake(freqMutex2, portMAX_DELAY);
-
-    state = gpio_get_level(SIGNAL2);
-
-    startOfPulse = micros();
-
-    while (gpio_get_level(SIGNAL2) == state && micros() - startOfPulse < 600);
-
-    start = micros();
-
-    while (gpio_get_level(SIGNAL2) != state && micros() - startOfPulse < 1200);
-
-    period = ( micros() - start ) * 2;
-
-    // if (period < 1500 && period > 600) {
-    //   F2 = 1000000 / period;
-    // }
-
-    if (period > 0) {
-      F2 = 1000000 / period;
-    }
-
-    xSemaphoreGive(freqMutex2);
-    
-    monitor.jobEnded(4);
-
-    vTaskDelayMS((int)((startOfProgram + 10000 * counter - micros()) / 1000));
-  }
-}
-
-void monitorProgram(void *pvParameters) {
-  TickType_t xLastWakeTime = xTaskGetTickCount();
-  const TickType_t xFrequency = pdMS_TO_TICKS(5);
-
-  uint16_t counter = 0;
-
-  while (1) {
-    counter++;
-    // vTaskDelayUntil(&xLastWakeTime, xFrequency);
-
-    // xSemaphoreTake(monitorMutex, portMAX_DELAY);
-    monitor.jobStarted(5);
-    // xSemaphoreGive(monitorMutex);
-
-    monitor.doWork();
-    
-    // xSemaphoreTake(monitorMutex, portMAX_DELAY);
-    monitor.jobEnded(5);
-    // xSemaphoreGive(monitorMutex);
-
-    //vTaskDelayUntil(&xLastWakeTime, xFrequency);
-
-    vTaskDelayMS((int)((startOfProgram + 5000 * counter - micros()) / 1000));
-
-  }
-}
-
-void monitorButton(void *pvParameters) {
-  TickType_t xLastWakeTime = xTaskGetTickCount();
-  const TickType_t xFrequency = pdMS_TO_TICKS(100);
 
   while (1) {
     vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
-    if (xSemaphoreTake(buttonMutex, portMAX_DELAY) == pdTRUE) {
+    monitor.jobStarted(3);
+
+    // frequency measurement was handled in a different function ro prevent repeated code
+    period = measureFrequency(SIGNAL1);
+
+    xSemaphoreTake(freqMutex1, portMAX_DELAY); // takes mutex to prevent shared resources
+
+    // the ESP32 proved to record a few sporadic frequency values during operation. This cause the LED to flicker which is not wanted for this program
+    // to mitigate for this the period value was checked for if it was too far outside the range given by the requirement and in this case it was not recorded
+    // in this case any signal with a frequency lower than 606HZ was ignored
+    if (period < 1650 && period > 0) F1 = 1000000 / period;
+
+    // through testing it was discovered that if the signal generator is turned off during operation the measured Frequency value would be within the 100,000s
+    // to mitigate for this issue it was decided that when this occured the frequency value would be set to 0HZ to allow the system to be more realistic
+    if (F1 > 100000) F1= 0.0; 
+
+    xSemaphoreGive(freqMutex1); // gives back mutex after writing to shared resource
+
+    monitor.jobEnded(3);
+  }
+}
+
+/*
+ * Method represents task 4 and these are its requirements:
+ * 
+ * 4.	Measure the frequency of a second 3.3v square wave signal. 
+ * The frequency of the wave signal in input will be in the range 833Hz to 1500Hz and the signal will be a standard square wave (50% duty cycle). 
+ * Let’s call this frequency F2 and measure it in Hz. You should measure F2 by polling the signal. 
+ * For this exercise, do not use interrupts (which would be the more efficient method).
+*/
+void getF2(void *pvParameters) {
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+  const TickType_t xFrequency = pdMS_TO_TICKS(10); // task is only run once every 10ms
+
+  unsigned long period = 0;
+
+  while (1) {
+    vTaskDelayUntil(&xLastWakeTime, xFrequency);
+
+    monitor.jobStarted(4);
+
+    // frequency measurement was handled in a different function ro prevent repeated code
+    period = measureFrequency(SIGNAL2);
+
+    xSemaphoreTake(freqMutex2, portMAX_DELAY); // takes mutex to prevent shared resources
+
+    // the ESP32 proved to record a few sporadic frequency values during operation. This cause the LED to flicker which is not wanted for this program
+    // to mitigate for this the period value was checked for if it was too far outside the range given by the requirement and in this case it was not recorded
+    // in this case any signal with a frequency lower than 606HZ was ignored
+    if (period < 1650 && period > 0) F2 = 1000000 / period;
+
+    // through testing it was discovered that if the signal generator is turned off during operation the measured Frequency value would be within the 100,000s
+    // to mitigate for this issue it was decided that when this occured the frequency value would be set to 0HZ to allow the system to be more realistic 
+    if (F2 > 100000) F2 = 0.0;
+
+    xSemaphoreGive(freqMutex2); // gives back mutex after writing to shared resource
+    
+    monitor.jobEnded(4);
+  }
+}
+
+/*
+ * Method represents task 5 and these are its requirements:
+ *
+ * 5.	Call the monitor’s method doWork().
+ */
+void monitorProgram(void *pvParameters) {
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+  const TickType_t xFrequency = pdMS_TO_TICKS(5);
+
+  while (1) {
+    vTaskDelayUntil(&xLastWakeTime, xFrequency);
+
+    monitor.jobStarted(5);
+
+    monitor.doWork();
+    
+    monitor.jobEnded(5);
+  }
+}
+
+/*
+ * Method manages button presses as outlined by this requirement. The logic behind handling the button input is done within this method to ensure
+ * the ISR does not waste too much CPU time which would cause violations. The task is given low priority to ensure it does not affect the main cycle
+ *
+ * 7.	Monitor a pushbutton. Toggle the state of a second LED and call the monitor’s method doWork() whenever the pushbutton is pressed.
+ */
+void monitorButton(void *pvParameters) {
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+  const TickType_t xFrequency = pdMS_TO_TICKS(120); // task is only run once every 120ms
+
+  while (1) {
+    vTaskDelayUntil(&xLastWakeTime, xFrequency);
+
+    if (xSemaphoreTake(buttonMutex, portMAX_DELAY) == pdTRUE) { // task will wait until it is signalled by the ISR
       monitor.doWork();
       ledState = !ledState;
       gpio_set_level(LED4, (int) ledState);
@@ -324,24 +273,30 @@ void monitorButton(void *pvParameters) {
   }
 }
 
+/*
+ * Method manages changing the state of the LED depending on frequency readings
+ * To protect shared resources a Mutex is used to ensure this task is not reading the variable at the same time it is written
+ * The task is given a very low priority to ensure it does not affect the main RTOS operation time
+ *
+ * Coursework requirement:
+ * 6.	Use a LED to indicate whether the sum of the two frequencies F1 and F2 is greater than 1500, i.e. when F1+F2 > 1500. 
+ */
 void monitorLed(void *pvParameters) {
   TickType_t xLastWakeTime = xTaskGetTickCount();
-  const TickType_t xFrequency = pdMS_TO_TICKS(100);
+  const TickType_t xFrequency = pdMS_TO_TICKS(120); // task is only run once every 120ms
 
   while (1) {
     vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
     xSemaphoreTake(freqMutex1, portMAX_DELAY);
 
-    float tempF1 = F1;
-    // Serial.println(tempF1);
+    float tempF1 = F1; // frequency is saved to a temporary variable to prevent deadlock / wasting cpu time when trying to access multiple mutex's
 
     xSemaphoreGive(freqMutex1);
     
     xSemaphoreTake(freqMutex2, portMAX_DELAY);
 
-    float tempF2 = F2;
-    //Serial.println(tempF2);
+    float tempF2 = F2; // simialrly here each frequency is read in turn to prevent deadlock / wasting cpu time while trying to take two different mutex's
 
     xSemaphoreGive(freqMutex2);
 
@@ -355,26 +310,46 @@ void monitorLed(void *pvParameters) {
   }
 }
 
-void vTaskDelayMS(int ms)
-{
-  vTaskDelay(ms / portTICK_PERIOD_MS);
+/*
+ * Method used to measure frequency
+ *
+ * @param signal represents which pin to read frequency from
+ */
+unsigned long measureFrequency(gpio_num_t signal) {
+  unsigned long period = 0;
+
+  unsigned long start;
+  unsigned long startOfPulse;
+
+  int state;
+
+  // retrieves state of input
+  state = gpio_get_level(signal);
+
+  // starts a timer to be used to timeout the system if needed
+  startOfPulse = micros();
+
+  // function waits for the signal input to change level or to timeout if too much time is used
+  while (gpio_get_level(signal) == state && micros() - startOfPulse < 750);
+
+  // starts measuring the frequency of the signal
+  start = micros();
+
+  // function waits for the signal input to change level again or timeout
+  while (gpio_get_level(signal) != state && micros() - startOfPulse < 1500);
+
+  // uses the measured time to calculate the period of the frequency
+  // this is multiplied by two as only half of the signal is measured for efficiency
+  period = ( micros() - start ) * 2;
+
+  return period;
 }
 
-
 /**
- *
  * Method to handle toggle button interrupt
  *
+ * Method signals an RTOS task using a binary semaphore to handle the interrupt to prevent the ISRs using up too much CPU time
  */
 void IRAM_ATTR toggleClick() {
-  unsigned long currentTime = millis(); // keeps track of number of milliseconds that have passed 
-  
-  // ignore interrupts that happen within debounceDelay
-  if (currentTime - lastDebounceTime > debounceDelay) {
-
-    lastDebounceTime = currentTime; // Update last debounce time
-
-    xSemaphoreGiveFromISR(buttonMutex, NULL);
-    
-  }
+  xSemaphoreGiveFromISR(buttonMutex, NULL); // uses binary semaphore to signal monitor button task to run
 }
